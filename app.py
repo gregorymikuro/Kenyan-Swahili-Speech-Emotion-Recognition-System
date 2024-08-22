@@ -8,6 +8,9 @@ import soundfile as sf
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
+import sys
+
+# st.write(f"Python version: {sys.version}")
 
 # Load the models
 rf_model = pickle.load(open("models/random_forest.pkl", "rb"))
