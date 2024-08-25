@@ -27,6 +27,7 @@ from sklearn.ensemble import (RandomForestClassifier, AdaBoostClassifier,
 from sklearn.preprocessing import label_binarize, StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.metrics import ConfusionMatrixDisplay
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, GridSearchCV
 
 
 # Machine Learning (XGBoost and CatBoost)
@@ -40,7 +41,8 @@ import warnings
 
 # Suppress FutureWarnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
-
+# Suppress only UserWarnings with specific message patterns
+warnings.filterwarnings('ignore', category=UserWarning, message='.*use_label_encoder.*')
 
 class DataLoader:
     def __init__(self, data_dir, emotions):
@@ -468,10 +470,11 @@ class Modeling:
         self.y_bin = label_binarize(self.y, classes=np.unique(self.y))
         self.n_classes = self.y_bin.shape[1]
 
-        # Split the data into training and test sets
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            self.X, self.y, test_size=self.test_size, random_state=self.random_state
-        )
+        # Use StratifiedShuffleSplit for stratified sampling
+        sss = StratifiedShuffleSplit(n_splits=1, test_size=self.test_size, random_state=self.random_state)
+        for train_index, test_index in sss.split(self.X, self.y):
+            self.X_train, self.X_test = self.X.iloc[train_index], self.X.iloc[test_index]
+            self.y_train, self.y_test = self.y.iloc[train_index], self.y.iloc[test_index]
 
         # Binarize the test labels for ROC computation
         self.y_test_bin = label_binarize(self.y_test, classes=np.unique(self.y))
@@ -494,6 +497,37 @@ class Modeling:
     def get_base_learners(self):
         """Return a list of base learners as (name, model) tuples for stacking."""
         return [(name, clf) for name, clf in self.classifiers.items()]
+
+    def tune_classifiers(self):
+        param_grid = {
+            'KNN': {'n_neighbors': [3, 5, 7]},
+            'AdaBoost': {'n_estimators': [50, 100]},
+            'Random Boosting': {'n_estimators': [50, 100], 'max_depth': [3, 5]},
+            'XGBoost': {'n_estimators': [50, 100], 'learning_rate': [0.01, 0.1]},
+            'CatBoost': {'depth': [3, 5], 'learning_rate': [0.01, 0.1], 'iterations': [50, 100]},
+            'Random Forest': {'n_estimators': [50, 100], 'max_depth': [3, 5]}
+        }
+
+        results = {}
+
+        for name, clf in self.classifiers.items():
+            print(f"Tuning {name}...")
+            grid_search = GridSearchCV(
+                clf,
+                param_grid.get(name, {}),
+                scoring='f1_weighted',
+                cv=3,  # Reduced number of folds for computational efficiency
+                n_jobs=1  
+            )
+            grid_search.fit(self.X_train_scaled, self.y_train)
+            results[name] = {
+                'Best Parameters': grid_search.best_params_,
+                'Best Score': grid_search.best_score_
+            }
+            print(f"{name} Best Parameters: {grid_search.best_params_}")
+            print(f"{name} Best Score: {grid_search.best_score_}")
+
+        return results
 
 
 class Evaluation(Modeling):
